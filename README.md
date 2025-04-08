@@ -1,0 +1,7 @@
+## Trikaya
+
+Trikaya
+
+#### License
+
+mit
