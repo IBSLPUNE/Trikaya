@@ -43,7 +43,12 @@ app_license = "mit"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+# trikaya/hooks.py
+
+doctype_js = {
+    "Sales Order": "public/js/salesorderrename.js"
+}
+
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -129,9 +134,12 @@ app_license = "mit"
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+# your_app/hooks.py
+
+override_doctype_class = {
+    "Sales Order": "trikaya.customizations.sales_order.SalesOrder"
+}
+
 
 # Document Events
 # ---------------
