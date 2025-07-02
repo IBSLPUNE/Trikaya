@@ -1,8 +1,8 @@
 app_name = "trikaya"
 app_title = "Trikaya"
-app_publisher = "Trikaya"
+app_publisher = "IBSL"
 app_description = "Trikaya"
-app_email = "design@indibasolutions.com"
+app_email = "Design@indibasolutions.com"
 app_license = "mit"
 
 # Apps
