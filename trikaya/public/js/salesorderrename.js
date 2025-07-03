@@ -1,12 +1,12 @@
 // File: trikaya/trikaya/public/js/sales_order.js
 frappe.ui.form.on('Sales Order', {
     refresh(frm) {
+        // Only show “Amend” on already‐submitted orders
         if (frm.doc.docstatus !== 1) return;
 
         frm.add_custom_button(__('Amend'), async () => {
-            // Freeze UI to prevent duplicate clicks
+            // Prevent double‐clicks
             frappe.dom.freeze(__('Creating duplicate…'));
-
             try {
                 // Call your app’s duplication API
                 const { new_name } = await frappe.xcall(
@@ -15,7 +15,7 @@ frappe.ui.form.on('Sales Order', {
                 );
 
                 if (new_name) {
-                    // Navigate to the new draft
+                    // Navigate into the newly-created draft
                     frappe.set_route('Form', 'Sales Order', new_name);
                 } else {
                     frappe.msgprint({
@@ -25,9 +25,9 @@ frappe.ui.form.on('Sales Order', {
                     });
                 }
             } catch (err) {
-                // Surface real errors only
-                const msg = (err.exc || err.message || '').split('\n')[0] 
-                            || __('Unknown error');
+                // Show only real errors
+                const msg = (err.exc || err.message || '').split('\n')[0]
+                          || __('Unknown error');
                 frappe.msgprint({
                     title: __('Duplication Failed'),
                     message: msg,
