@@ -1,6 +1,7 @@
 import re
 import frappe
 from frappe import _
+from frappe.utils import now
 
 def _next_clone_name(src_name: str) -> str:
     """Return src_name-<n> where n is the next available integer, supporting slashes."""
@@ -25,8 +26,16 @@ def amend_po(po_name: str):
     if src.docstatus == 0 and (src.workflow_state or "").lower() == "draft":
         frappe.throw(_("Amend is not allowed on Draft."))
 
-    # 1) Mark original as Closed (keep its docstatus)
-    frappe.db.set_value("Purchase Order", src.name, "status", "Closed")
+    # 1) Mark original as Closed (keep its docstatus) AND set workflow_state to Closed
+    #    Also bump the modified timestamp so list view / caches reflect the change immediately.
+    frappe.db.set_value("Purchase Order", src.name, {
+        "status": "Closed",
+        "workflow_state": "Closed",
+        "modified": now()
+    })
+
+    # commit so list queries see the updated state before clone is inserted
+    frappe.db.commit()
 
     # 2) Make clean draft copy (do NOT set amended_from)
     clone = frappe.copy_doc(src)
@@ -52,4 +61,3 @@ def amend_po(po_name: str):
 
     frappe.db.commit()
     return target
-
