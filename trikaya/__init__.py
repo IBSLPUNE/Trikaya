@@ -15,4 +15,4 @@
 
 # # Override the function in the naming module
 # naming.get_naming_series_for_doc = _patched_get_series
-__version__ = "0.0.2"
+__version__ = "0.0.4"

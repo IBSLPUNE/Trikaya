@@ -1,5 +1,3 @@
-# File: apps/trikaya/trikaya/customizations/purchase_order_amend.py
-
 import re
 import frappe
 from frappe import _
@@ -7,22 +5,40 @@ from frappe.utils import now
 
 LOG = frappe.logger("po_amend", allow_site=True, file_count=5)
 
-# -----------------------
-# Small helpers
-# -----------------------
+# ============================================
+# Helpers
+# ============================================
+
 def _next_from_base(base: str) -> str:
+    """
+    Returns the next available name for a given base.
+    e.g. base = "101" -> "101-1", then "101-2", etc.
+    """
     n = 1
     while True:
-        candidate = f"{base}-{n}"
-        if not frappe.db.exists("Purchase Order", candidate):
-            return candidate
+        name = f"{base}-{n}"
+        if not frappe.db.exists("Purchase Order", name):
+            return name
         n += 1
 
-def _base_for_new_clone(src) -> str:
+
+def _base_for_new_clone(src):
+    """
+    Always use the ORIGINAL PO number as base.
+    - First amend of 101   : base = "101"
+    - Second amend of 101-1: base = still "101" (stored in custom_previous_purchase_order)
+
+    So naming becomes: 101 -> 101-1 -> 101-2 -> 101-3 ...
+    """
     prev = (src.get("custom_previous_purchase_order") or "").strip()
     return prev if prev else src.name
 
+
 def _close_original(src_name: str):
+    """
+    Close the original PO.
+    (Locking/amendability is derived from the chain, not from a field.)
+    """
     frappe.db.set_value(
         "Purchase Order",
         src_name,
@@ -30,6 +46,7 @@ def _close_original(src_name: str):
     )
     frappe.db.commit()
     LOG.info(f"[CLOSED] {src_name}")
+
 
 def _safe_zero(doc, fields):
     for f in fields:
@@ -39,6 +56,7 @@ def _safe_zero(doc, fields):
             except Exception:
                 pass
 
+
 def _safe_clear(doc, fields):
     for f in fields:
         if hasattr(doc, f):
@@ -47,13 +65,10 @@ def _safe_clear(doc, fields):
             except Exception:
                 pass
 
+
 def _defensive_clear_fields(doc, substrings):
-    """
-    Clear any attribute whose fieldname contains any of the substrings (case-insensitive).
-    Useful when vendors/patches add new subcontracting link fields.
-    """
-    d = doc.as_dict() if hasattr(doc, "as_dict") else {}
-    for key in list(d.keys()):
+    d = doc.as_dict()
+    for key in d:
         low = key.lower()
         if any(s in low for s in substrings):
             try:
@@ -61,183 +76,255 @@ def _defensive_clear_fields(doc, substrings):
             except Exception:
                 pass
 
+# ============================================
+# Clone cleaner (critical for subcontracting)
+# ============================================
+
 def _prep_clone(src, fixed_base: str):
-    """
-    Clean Draft clone for a fresh subcontracting cycle:
-    - Reset volatile header fields
-    - Remember original id in custom_previous_purchase_order
-    - Zero/clear child rows so no progress/link remains
-    """
     clone = frappe.copy_doc(src)
     clone.docstatus = 0
 
-    # ---------- header resets ----------
-    header_zero_fields = [
-        "per_received", "per_billed", "per_installed",
-        "per_returned", "per_delivered", "per_subcontracted"  # <- important if present
-    ]
-    _safe_zero(clone, header_zero_fields)
+    # --- Header resets ---
+    _safe_zero(clone, [
+        "per_received", "per_billed", "per_installed", "per_returned",
+        "per_delivered", "per_subcontracted"
+    ])
+    _safe_clear(clone, ["workflow_state", "status"])
+    clone.workflow_state = "draft"
 
-    header_clear_fields = ["workflow_state", "status"]
-    _safe_clear(clone, header_clear_fields)
+    # always track original PO id (this is what keeps base as "101")
+    clone.custom_previous_purchase_order = fixed_base
 
-    if "workflow_state" in clone.as_dict():
-        clone.workflow_state = "draft"
-
-    # keep strict naming base
-    clone.set("custom_previous_purchase_order", fixed_base)
-
-    # ---------- item resets ----------
+    # --- Item resets ---
     item_zero_fields = [
-        "received_qty",
-        "billed_qty",
-        "billed_amt",
-        "delivered_by_supplier",
-        "subcontracted_qty",   # <- critical
-        "supplied_qty",
-        "returned_qty",
-        # DO NOT zero 'qty' (ordered qty) – leave user's intended qty intact
+        "received_qty", "billed_qty", "billed_amt",
+        "delivered_by_supplier", "subcontracted_qty",
+        "supplied_qty", "returned_qty"
     ]
     item_clear_fields = [
-        # links to prior docs
         "purchase_receipt", "pr_detail",
         "prevdoc_docname", "prevdoc_detail_docname",
         "prevdoc_doctype", "material_request", "material_request_item",
         "subcontracting_order", "subcontracting_order_item",
-        "subcontracting_order_supplied_item",
+        "subcontracting_order_supplied_item"
+    ]
+    defensive_item = [
+        "subcontract", "supplied", "reference",
+        "purchase_receipt", "stock_entry", "prevdoc"
     ]
 
-    # defensive patterns to clear any unknown vendor fields
-    item_defensive_substrings = [
-        "subcontract", "supplied", "reference", "purchase_receipt", "stock_entry",
-        "stock_entry_detail", "linked_", "prevdoc"
-    ]
-
-    for it in (clone.items or []):
+    for it in clone.items:
         _safe_zero(it, item_zero_fields)
         _safe_clear(it, item_clear_fields)
-        _defensive_clear_fields(it, item_defensive_substrings)
+        _defensive_clear_fields(it, defensive_item)
 
-    # ---------- supplied items table (if exists) ----------
-    supplied_zero_fields = ["consumed_qty", "supplied_qty", "returned_qty"]
-    supplied_clear_fields = [
+    # --- Supplied Items ---
+    supplied_zero = ["consumed_qty", "supplied_qty", "returned_qty"]
+    supplied_clear = [
         "reference_doctype", "reference_name", "reference_row",
         "purchase_receipt", "stock_entry", "stock_entry_detail",
-        "subcontracting_order", "subcontracting_order_item",
+        "subcontracting_order", "subcontracting_order_item"
     ]
-    supplied_defensive_substrings = [
-        "subcontract", "supplied", "reference", "purchase_receipt",
-        "stock_entry", "linked_", "prevdoc"
-    ]
+    defensive_sup = ["subcontract", "supplied", "purchase_receipt", "stock_entry"]
 
     if hasattr(clone, "supplied_items"):
-        for si in (clone.supplied_items or []):
-            _safe_zero(si, supplied_zero_fields)
-            _safe_clear(si, supplied_clear_fields)
-            _defensive_clear_fields(si, supplied_defensive_substrings)
+        for si in clone.supplied_items:
+            _safe_zero(si, supplied_zero)
+            _safe_clear(si, supplied_clear)
+            _defensive_clear_fields(si, defensive_sup)
 
     return clone
 
-def _force_rename_po(old_name: str, target_base: str) -> str:
+# ============================================
+# Renamer
+# ============================================
+
+def _force_rename_po(old_name: str, base: str) -> str:
     n = 1
     while True:
-        candidate = f"{target_base}-{n}"
-        if not frappe.db.exists("Purchase Order", candidate):
+        target = f"{base}-{n}"
+        if not frappe.db.exists("Purchase Order", target):
             break
         n += 1
-    if old_name != candidate:
-        LOG.info(f"[RENAME] {old_name} -> {candidate}")
-        frappe.rename_doc("Purchase Order", old_name, candidate, force=True, merge=False)
-    return candidate
+    if target != old_name:
+        frappe.rename_doc("Purchase Order", old_name, target, force=True, merge=False)
+    return target
 
-# -----------------------
-# Regular flow
-# -----------------------
+# ============================================
+# Chain / latest logic
+# ============================================
+
+def _parse_index(name: str, base: str) -> int:
+    """
+    base      -> index 0
+    base-1    -> index 1
+    base-10   -> index 10
+    anything else -> 0 (safe)
+    """
+    if name == base:
+        return 0
+    prefix = base + "-"
+    if name.startswith(prefix):
+        tail = name[len(prefix):]
+        try:
+            return int(tail)
+        except Exception:
+            return 0
+    return 0
+
+
+def _is_latest_in_chain(po) -> bool:
+    """
+    Only the latest PO in the chain (by suffix) is amendable.
+    Chain is defined by base (original PO id) = custom_previous_purchase_order or name.
+    """
+    base = _base_for_new_clone(po)  # "101" for all POs in the 101-chain
+
+    # collect all names in this chain
+    child_names = frappe.db.get_all(
+        "Purchase Order",
+        filters={"custom_previous_purchase_order": base},
+        pluck="name",
+    )
+
+    names = [base] + child_names
+
+    latest = max(names, key=lambda nm: _parse_index(nm, base))
+    return latest == po.name
+
+
+def _can_amend_po_internal(po) -> bool:
+    """
+    Internal rule:
+    - must be submitted
+    - not closed
+    - must be latest in its chain (using custom_previous_purchase_order / naming)
+    """
+    if po.docstatus != 1:
+        return False
+
+    status = (po.status or "").lower()
+    ws = (po.workflow_state or "").lower()
+
+    if status == "closed" or ws == "closed":
+        return False
+
+    # only latest in chain is allowed to amend
+    if not _is_latest_in_chain(po):
+        return False
+
+    return True
+
+# ============================================
+# REGULAR AMEND
+# ============================================
+
 def _amend_regular(src):
-    fixed_base = _base_for_new_clone(src)
-    LOG.info(f"[REGULAR] base={fixed_base}")
+    base = _base_for_new_clone(src)  # always ends up "101" for 101, 101-1, 101-2, ...
+    LOG.info(f"[REGULAR] base={base}")
 
+    # close old
     _close_original(src.name)
 
-    clone = _prep_clone(src, fixed_base)
-
-    # Insert first (temp name), then rename to strict base-n
+    # prepare clone (reset fields, set custom_previous_purchase_order = base)
+    clone = _prep_clone(src, base)
     clone.insert(ignore_permissions=True)
-    LOG.info(f"[INSERT] regular clone as {clone.name}")
 
-    target = _next_from_base(fixed_base)
+    # strict final rename
+    target = _next_from_base(base)  # 101-1, then 101-2, 101-3, ...
     if clone.name != target:
-        frappe.rename_doc("Purchase Order", clone.name, target, force=True, merge=False)
-        clone_name = target
-    else:
-        clone_name = clone.name
+        frappe.rename_doc("Purchase Order", clone.name, target, force=True)
 
     frappe.db.commit()
-    return clone_name
+    return target
 
-# -----------------------
-# Subcontracted flow (strict naming)
-# -----------------------
-def _amend_subcontracted(src):
-    fixed_base = _base_for_new_clone(src)
-    LOG.info(f"[SUBCON] base={fixed_base}")
+# ============================================
+# SUBCONTRACTED AMEND
+# ============================================
 
+def _amend_sub(src):
+    base = _base_for_new_clone(src)
+    LOG.info(f"[SUB] base={base}")
+
+    # close old
     _close_original(src.name)
 
-    clone = _prep_clone(src, fixed_base)
+    clone = _prep_clone(src, base)
 
-    # reduce series interference
+    # stop naming series interference
     for f in ("naming_series", "series_value"):
-        if f in clone.as_dict():
-            try:
-                setattr(clone, f, None)
-            except Exception:
-                pass
+        if hasattr(clone, f):
+            setattr(clone, f, None)
 
-    # set desired name BEFORE insert to try bypassing series
-    desired = _next_from_base(fixed_base)
+    desired = _next_from_base(base)
     clone.name = desired
     clone.flags.name_set = True
-    clone.flags.name_set_from_naming_series = True
 
     clone.insert(ignore_permissions=True)
-    LOG.info(f"[INSERT] subcon clone as {clone.name}, desired {desired}")
 
-    # if series or hooks changed it, force rename
+    # if series still overrode
     if clone.name != desired:
-        desired = _force_rename_po(clone.name, fixed_base)
-        LOG.info(f"[FORCED] subcon final {desired}")
+        desired = _force_rename_po(clone.name, base)
 
     frappe.db.commit()
     return desired
 
-# -----------------------
-# Smart endpoint (call from client)
-# -----------------------
+# ============================================
+# PUBLIC: can_amend_po (used by client)
+# ============================================
+
+@frappe.whitelist()
+def can_amend_po(po_name: str) -> bool:
+    po = frappe.get_doc("Purchase Order", po_name)
+    return _can_amend_po_internal(po)
+
+# ============================================
+# SMART PUBLIC API
+# ============================================
+
 @frappe.whitelist()
 def amend_po_smart(po_name: str):
-    """
-    Smart amend that:
-    - Closes original PO (status/workflow_state -> Closed)
-    - Creates clean Draft clone
-    - Ensures custom_previous_purchase_order = original id
-    - Strictly names clone as <original>-n
-    - Resets all subcontracting progress/links so "fully subcontracted" never triggers
-    - Returns new draft name
-    """
     src = frappe.get_doc("Purchase Order", po_name)
 
-    # Block only true Draft
+    # 0) Hard block via internal rule (latest + not closed + submitted)
+    if not _can_amend_po_internal(src):
+        frappe.throw(_("Amend is not allowed on this Purchase Order."))
+
+    # 1) Block true draft (defensive, though internal rule already checks docstatus)
     if src.docstatus == 0 and (src.workflow_state or "").lower() == "draft":
         frappe.throw(_("Amend is not allowed on Draft."))
 
-    is_sub = bool(src.get("is_subcontracted"))
-    LOG.info(f"[BEGIN] Amend {src.name} (is_subcontracted={is_sub})")
-
-    if is_sub:
-        new_name = _amend_subcontracted(src)
+    # 2) Normal routing
+    if src.is_subcontracted:
+        new_name = _amend_sub(src)
     else:
         new_name = _amend_regular(src)
 
-    LOG.info(f"[DONE] New draft {new_name}")
+    LOG.info(f"[DONE] new draft {new_name}")
     return new_name
+
+# ============================================
+# AUTOMATIC: When PO is reopened → force APPROVED
+# ============================================
+
+def _coerce_approved_badge(po):
+    """
+    If PO is submitted & not closed → status/workflow_state = Approved
+    This ensures list view always shows correct badge.
+    """
+    if po.docstatus == 1 and (po.status or "").lower() != "closed":
+        frappe.db.set_value("Purchase Order", po.name, {
+            "status": "Approved",
+            "workflow_state": "Approved",
+            "modified": now()
+        })
+        frappe.db.commit()
+
+
+def ensure_approved_badge_on_reopen(doc, method=None):
+    try:
+        if doc.doctype != "Purchase Order":
+            return
+        _coerce_approved_badge(doc)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "ensure_approved_badge_on_reopen")
