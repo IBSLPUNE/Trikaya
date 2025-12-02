@@ -279,7 +279,7 @@ def can_amend_po(po_name: str) -> bool:
     return _can_amend_po_internal(po)
 
 # ============================================
-# SMART PUBLIC API
+#  PUBLIC API
 # ============================================
 
 @frappe.whitelist()
@@ -292,7 +292,7 @@ def amend_po_smart(po_name: str):
 
     # 1) Block true draft (defensive, though internal rule already checks docstatus)
     if src.docstatus == 0 and (src.workflow_state or "").lower() == "draft":
-        frappe.throw(_("Amend is not allowed on Draft."))
+        frappe.throw(_("Amend is not allowed on draft."))
 
     # 2) Normal routing
     if src.is_subcontracted:
@@ -328,3 +328,4 @@ def ensure_approved_badge_on_reopen(doc, method=None):
         _coerce_approved_badge(doc)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "ensure_approved_badge_on_reopen")
+
