@@ -12,7 +12,7 @@ LOG = frappe.logger("po_amend", allow_site=True, file_count=5)
 def _next_from_base(base: str) -> str:
     """
     Returns the next available name for a given base.
-    e.g. base = "101" -> "101-1", then "101-2", etc.
+    e.g. base = "100" -> "100-1", then "100-2", etc.
     """
     n = 1
     while True:
@@ -24,20 +24,29 @@ def _next_from_base(base: str) -> str:
 
 def _base_for_new_clone(src):
     """
-    Always use the ORIGINAL PO number as base.
-    - First amend of 101   : base = "101"
-    - Second amend of 101-1: base = still "101" (stored in custom_previous_purchase_order)
+    Compute the ORIGINAL base purely from name:
 
-    So naming becomes: 101 -> 101-1 -> 101-2 -> 101-3 ...
+    - "100"      -> base "100"
+    - "100-1"    -> base "100"
+    - "100-2"    -> base "100"
+    - "PO-0001"  -> base "PO-0001"
+    - "PO-0001-1"-> base "PO-0001"
+
+    We do NOT use custom_previous_purchase_order as base anymore.
+    That field is now "immediate previous PO".
     """
-    prev = (src.get("custom_previous_purchase_order") or "").strip()
-    return prev if prev else src.name
+    name = src.name or ""
+    m = re.match(r"^(.*)-(\d+)$", name)
+    if m:
+        # prefix before the last "-<number>"
+        return m.group(1)
+    return name
 
 
 def _close_original(src_name: str):
     """
     Close the original PO.
-    (Locking/amendability is derived from the chain, not from a field.)
+    (Amendability is derived from name chain, not a flag field.)
     """
     frappe.db.set_value(
         "Purchase Order",
@@ -80,7 +89,12 @@ def _defensive_clear_fields(doc, substrings):
 # Clone cleaner (critical for subcontracting)
 # ============================================
 
-def _prep_clone(src, fixed_base: str):
+def _prep_clone(src, base: str):
+    """
+    Prepare cloned doc:
+    - Reset percent / linkage fields
+    - Set custom_previous_purchase_order = IMMEDIATE previous PO (src.name)
+    """
     clone = frappe.copy_doc(src)
     clone.docstatus = 0
 
@@ -92,8 +106,11 @@ def _prep_clone(src, fixed_base: str):
     _safe_clear(clone, ["workflow_state", "status"])
     clone.workflow_state = "draft"
 
-    # always track original PO id (this is what keeps base as "101")
-    clone.custom_previous_purchase_order = fixed_base
+    # ------------------------------
+    # THIS IS THE IMPORTANT CHANGE:
+    # previous purchase order = current source name
+    # ------------------------------
+    clone.custom_previous_purchase_order = src.name
 
     # --- Item resets ---
     item_zero_fields = [
@@ -175,15 +192,16 @@ def _parse_index(name: str, base: str) -> int:
 
 def _is_latest_in_chain(po) -> bool:
     """
-    Only the latest PO in the chain (by suffix) is amendable.
-    Chain is defined by base (original PO id) = custom_previous_purchase_order or name.
+    Only the latest PO in the chain (by numeric suffix) is amendable.
+    Chain is defined by base (derived from name).
     """
-    base = _base_for_new_clone(po)  # "101" for all POs in the 101-chain
+    base = _base_for_new_clone(po)
 
-    # collect all names in this chain
+    # all POs whose name is base-* (e.g. "100-1", "100-2")
     child_names = frappe.db.get_all(
         "Purchase Order",
-        filters={"custom_previous_purchase_order": base},
+        # name LIKE 'base-%'
+        filters=[["Purchase Order", "name", "like", f"{base}-%"]],
         pluck="name",
     )
 
@@ -198,7 +216,7 @@ def _can_amend_po_internal(po) -> bool:
     Internal rule:
     - must be submitted
     - not closed
-    - must be latest in its chain (using custom_previous_purchase_order / naming)
+    - must be latest in its chain
     """
     if po.docstatus != 1:
         return False
@@ -220,18 +238,18 @@ def _can_amend_po_internal(po) -> bool:
 # ============================================
 
 def _amend_regular(src):
-    base = _base_for_new_clone(src)  # always ends up "101" for 101, 101-1, 101-2, ...
+    base = _base_for_new_clone(src)  # always ends up like "100"
     LOG.info(f"[REGULAR] base={base}")
 
     # close old
     _close_original(src.name)
 
-    # prepare clone (reset fields, set custom_previous_purchase_order = base)
+    # prepare clone (previous PO id = src.name)
     clone = _prep_clone(src, base)
     clone.insert(ignore_permissions=True)
 
     # strict final rename
-    target = _next_from_base(base)  # 101-1, then 101-2, 101-3, ...
+    target = _next_from_base(base)  # 100-1, then 100-2, 100-3, ...
     if clone.name != target:
         frappe.rename_doc("Purchase Order", clone.name, target, force=True)
 
@@ -279,7 +297,7 @@ def can_amend_po(po_name: str) -> bool:
     return _can_amend_po_internal(po)
 
 # ============================================
-#  PUBLIC API
+# SMART PUBLIC API
 # ============================================
 
 @frappe.whitelist()
@@ -290,9 +308,9 @@ def amend_po_smart(po_name: str):
     if not _can_amend_po_internal(src):
         frappe.throw(_("Amend is not allowed on this Purchase Order."))
 
-    # 1) Block true draft (defensive, though internal rule already checks docstatus)
+    # 1) Block true draft (defensive)
     if src.docstatus == 0 and (src.workflow_state or "").lower() == "draft":
-        frappe.throw(_("Amend is not allowed on draft."))
+        frappe.throw(_("Amend is not allowed on Draft."))
 
     # 2) Normal routing
     if src.is_subcontracted:
@@ -328,4 +346,3 @@ def ensure_approved_badge_on_reopen(doc, method=None):
         _coerce_approved_badge(doc)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "ensure_approved_badge_on_reopen")
-
