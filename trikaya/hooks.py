@@ -140,6 +140,11 @@ override_doctype_class = {
     "Sales Order": "trikaya.customizations.sales_order.SalesOrder"
 }
 
+doc_events = {
+    "Supplier": {
+        "after_insert": "trikaya.customizations.supplier.create_bank_account_for_supplier"
+    }
+}
 
 
 
