@@ -98,6 +98,17 @@ def _prep_clone(src, base: str):
     clone = frappe.copy_doc(src)
     clone.docstatus = 0
 
+    # After clone = frappe.copy_doc(src)
+    if not clone.custom_fiscal_year:
+        clone.custom_fiscal_year = frappe.db.get_value(
+        "Fiscal Year",
+        filters={
+            "year_start_date": ("<=", clone.transaction_date),
+            "year_end_date": (">=", clone.transaction_date),
+        },
+        fieldname="name",
+    )
+
     # --- Header resets ---
     _safe_zero(clone, [
         "per_received", "per_billed", "per_installed", "per_returned",
