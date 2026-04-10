@@ -223,22 +223,9 @@ def _is_latest_in_chain(po) -> bool:
 
 
 def _can_amend_po_internal(po) -> bool:
-    """
-    Internal rule:
-    - must be submitted
-    - not closed
-    - must be latest in its chain
-    """
     if po.docstatus != 1:
         return False
 
-    status = (po.status or "").lower()
-    ws = (po.workflow_state or "").lower()
-
-    if status == "closed" or ws == "closed":
-        return False
-
-    # only latest in chain is allowed to amend
     if not _is_latest_in_chain(po):
         return False
 
