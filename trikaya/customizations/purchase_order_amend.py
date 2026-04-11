@@ -236,23 +236,29 @@ def _can_amend_po_internal(po) -> bool:
 # ============================================
 
 def _amend_regular(src):
-    base = _base_for_new_clone(src)  # always ends up like "100"
+    base = _base_for_new_clone(src)
     LOG.info(f"[REGULAR] base={base}")
 
-    # close old
     _close_original(src.name)
 
-    # prepare clone (previous PO id = src.name)
     clone = _prep_clone(src, base)
+
+    # Pre-assign name to avoid naming series collision
+    desired = _next_from_base(base)
+    clone.name = desired
+    clone.flags.name_set = True
+    for f in ("naming_series", "series_value"):
+        if hasattr(clone, f):
+            setattr(clone, f, None)
+
     clone.insert(ignore_permissions=True)
 
-    # strict final rename
-    target = _next_from_base(base)  # 100-1, then 100-2, 100-3, ...
-    if clone.name != target:
-        frappe.rename_doc("Purchase Order", clone.name, target, force=True)
+    # Safety rename if series still overrode
+    if clone.name != desired:
+        frappe.rename_doc("Purchase Order", clone.name, desired, force=True)
 
     frappe.db.commit()
-    return target
+    return clone.name
 
 # ============================================
 # SUBCONTRACTED AMEND
