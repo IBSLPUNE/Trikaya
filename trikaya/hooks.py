@@ -166,6 +166,17 @@ doc_events = {
 # Scheduled Tasks
 # ---------------
 
+# Runs every 15 minutes and syncs from "Sync From" (in Attendance Sync Settings) till now.
+scheduler_events = {
+	"cron": {
+		"*/15 * * * *": [
+			"trikaya.trikaya.sync.sync_attendance"
+		]
+	}
+}
+
+
+
 # scheduler_events = {
 # 	"all": [
 # 		"trikaya.tasks.all"

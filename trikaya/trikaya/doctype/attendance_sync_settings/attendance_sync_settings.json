@@ -1,0 +1,100 @@
+{
+ "actions": [],
+ "creation": "2026-08-28 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "api_url",
+  "app_key",
+  "column_break_1",
+  "sync_from",
+  "last_sync_time",
+  "last_sync_status",
+  "section_break_1",
+  "device_mapping"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "description": "Example: http://demoapitest.ampletrail.com/api/WebAPI/GetAttendanceBetweenDates",
+   "fieldname": "api_url",
+   "fieldtype": "Data",
+   "label": "API URL",
+   "reqd": 1
+  },
+  {
+   "fieldname": "app_key",
+   "fieldtype": "Data",
+   "label": "App Key",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Set this manually the first time. It auto-updates to the latest synced punch time after every run.",
+   "fieldname": "sync_from",
+   "fieldtype": "Datetime",
+   "label": "Sync From",
+   "reqd": 1
+  },
+  {
+   "fieldname": "last_sync_time",
+   "fieldtype": "Datetime",
+   "label": "Last Sync Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_sync_status",
+   "fieldtype": "Small Text",
+   "label": "Last Sync Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_1",
+   "fieldtype": "Section Break",
+   "label": "Device Direction Mapping"
+  },
+  {
+   "fieldname": "device_mapping",
+   "fieldtype": "Table",
+   "label": "Device Mapping",
+   "options": "Attendance Sync Device Mapping"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-08-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Trikaya",
+ "name": "Attendance Sync Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "HR Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
