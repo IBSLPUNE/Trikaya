@@ -1,9 +1,9 @@
 [project]
-name = "trikaya"
+name = "pcl"
 authors = [
     { name = "IBSL", email = "Design@indibasolutions.com"}
 ]
-description = "Trikaya"
+description = "PCL"
 requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
