@@ -1,7 +1,7 @@
-app_name = "trikaya"
-app_title = "Trikaya"
+app_name = "pcl"
+app_title = "Pcl"
 app_publisher = "IBSL"
-app_description = "Trikaya"
+app_description = "PCL"
 app_email = "Design@indibasolutions.com"
 app_license = "mit"
 
@@ -45,9 +45,7 @@ app_license = "mit"
 # include js in doctype views
 # trikaya/hooks.py
 
-doctype_js = {
-    "Sales Order": "public/js/salesorderrename.js"
-}
+
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -136,15 +134,7 @@ doctype_js = {
 
 # your_app/hooks.py
 
-override_doctype_class = {
-    "Sales Order": "trikaya.customizations.sales_order.SalesOrder"
-}
 
-doc_events = {
-    "Supplier": {
-        "after_insert": "trikaya.customizations.supplier.create_bank_account_for_supplier"
-    }
-}
 
 
 
@@ -167,13 +157,7 @@ doc_events = {
 # ---------------
 
 # Runs every 15 minutes and syncs from "Sync From" (in Attendance Sync Settings) till now.
-scheduler_events = {
-	"cron": {
-		"*/15 * * * *": [
-			"trikaya.trikaya.sync.sync_attendance"
-		]
-	}
-}
+
 
 
 
