@@ -1,4 +1,4 @@
-app_name = "pcl"
+app_name = "trikaya"
 app_title = "Pcl"
 app_publisher = "IBSL"
 app_description = "PCL"
